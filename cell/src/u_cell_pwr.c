@@ -790,6 +790,9 @@ static int32_t setEDrxUrc(const uCellPrivateInstance_t *pInstance)
     uAtClientResponseStop(atHandle);
     uAtClientUnlock(atHandle);
 
+    // FIXME: It's upset because its already connected, can't set the values.
+    return errorCode;
+
     for (size_t x = 0; (x < sizeof(cedrxsRat) / sizeof(cedrxsRat[0])) && (errorCode == 0); x++) {
         if (cedrxsRat[x] >= 0) {
             // For all the RATs that support E-DRX, write the

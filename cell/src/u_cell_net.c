@@ -81,7 +81,7 @@
  * it needs to be considered _very_ carefully, need to be sure that
  * the dodge in CXREG_urc() and registerNetwork() still works.
 */
-#define U_CELL_NET_CEREG_TYPE 4
+#define U_CELL_NET_CEREG_TYPE 3
 
 /** The type of CREG/CGREG to request.
  * IMPORTANT: if this value ever needs to change, because of the
