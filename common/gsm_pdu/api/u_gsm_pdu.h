@@ -22,6 +22,13 @@
 
 #define SMS_PDU_MAX_NUMBER_LENGTH 20u
 
+typedef enum {
+    SMS_REC_UNREAD = 0,
+    SMS_REC_READ = 1,
+    SMS_STO_UNSENT = 2,
+    SMS_STO_SENT = 3,
+} uGsmPduSmsStat_t;
+
 typedef struct {
     uint8_t toa;
     uint8_t number_length;
@@ -29,6 +36,7 @@ typedef struct {
 } uGsmPduSmscData_t;
 
 typedef struct {
+    uGsmPduSmsStat_t stat;
     uGsmPduSmscData_t smsc;
 } uGsmPduSmsDeliver_t;
 

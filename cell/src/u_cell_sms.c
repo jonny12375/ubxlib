@@ -25,18 +25,19 @@
  */
 
 #ifdef U_CFG_OVERRIDE
-# include "u_cfg_override.h" // For a customer's configuration override
+#include "u_cfg_override.h"// For a customer's configuration override
 #endif
 
+#include "ctype.h"// isdigit()
 #include "errno.h"
-#include "limits.h"    // INT_MAX
-#include "stdlib.h"    // strol(), atoi(), strol()
-#include "stddef.h"    // NULL, size_t etc.
-#include "stdint.h"    // int32_t etc.
+#include "limits.h"// INT_MAX
 #include "stdbool.h"
-#include "string.h"    // strlen()
-#include "time.h"      // struct tm
-#include "ctype.h"     // isdigit()
+#include "stddef.h"// NULL, size_t etc.
+#include "stdint.h"// int32_t etc.
+#include "stdlib.h"// strol(), atoi(), strol()
+#include "string.h"// strlen()
+#include "time.h"  // struct tm
+#include <u_hex_bin_convert.h>
 
 #include "u_cfg_sw.h"
 
@@ -59,6 +60,8 @@
 #include "u_cell_private.h" // don't change it
 #include "u_cell_sms.h"
 
+#include "u_gsm_pdu.h"
+
 /* ----------------------------------------------------------------
  * COMPILE-TIME MACROS
  * -------------------------------------------------------------- */
@@ -80,30 +83,38 @@
  * PUBLIC FUNCTIONS
  * -------------------------------------------------------------- */
 
-// Get the ICCID string of the SIM in the cellular module.
 int32_t uCellSmsRead(uDeviceHandle_t cellHandle, int index, uCellSms_t *sms)
 {
     int32_t errorCodeOrSize = (int32_t) U_ERROR_COMMON_NOT_INITIALISED;
     uCellPrivateInstance_t *pInstance;
     uAtClientHandle_t atHandle;
-    int32_t bytesRead;
 
-    if (gUCellPrivateMutex != NULL) {
-
+    if (gUCellPrivateMutex != NULL)
+    {
         U_PORT_MUTEX_LOCK(gUCellPrivateMutex);
 
         pInstance = pUCellPrivateGetInstance(cellHandle);
         errorCodeOrSize = (int32_t) U_ERROR_COMMON_INVALID_PARAMETER;
-        if ((pInstance != NULL) && (index >= 0) && (sms != NULL)) {
+        if ((pInstance != NULL) && (index >= 0) && (sms != NULL))
+        {
             atHandle = pInstance->atHandle;
 
+            // CSDH=1 - show detailed SMS information
             uAtClientLock(atHandle);
             uAtClientCommandStart(atHandle, "AT+CSDH=");
             uAtClientWriteInt(atHandle, 1);
-            uAtClientCommandStop(atHandle);
-            uAtClientResponseStart(atHandle, "+CMGR:");
-            // bytesRead = uAtClientReadString(atHandle, pStr, size, false);
-            uAtClientResponseStop(atHandle);
+            uAtClientCommandStopReadResponse(atHandle);
+            errorCodeOrSize = uAtClientUnlock(atHandle);
+            if (errorCodeOrSize < 0)
+            {
+                return U_ERROR_COMMON_DEVICE_ERROR;
+            }
+
+            // CMGF=0 - Use PDU mode for SMS
+            uAtClientLock(atHandle);
+            uAtClientCommandStart(atHandle, "AT+CMGF=");
+            uAtClientWriteInt(atHandle, 0);
+            uAtClientCommandStopReadResponse(atHandle);
             errorCodeOrSize = uAtClientUnlock(atHandle);
             if (errorCodeOrSize < 0)
             {
@@ -115,15 +126,35 @@ int32_t uCellSmsRead(uDeviceHandle_t cellHandle, int index, uCellSms_t *sms)
             uAtClientWriteInt(atHandle, index);
             uAtClientCommandStop(atHandle);
             uAtClientResponseStart(atHandle, "+CMGR:");
-            // bytesRead = uAtClientReadString(atHandle, pStr, size, false);
-            uAtClientResponseStop(atHandle);
+            const int stat = uAtClientReadInt(atHandle);
+            // Skip phonebook name
+            uAtClientSkipParameters(atHandle, 1u);
+            const int pdu_length = uAtClientReadInt(atHandle);
+            uAtClientIgnoreStopTag(atHandle);
+            char smsc_length_data[2];
+            const int smsc_data = uAtClientReadBytes(atHandle, smsc_length_data, 2u, true);
+            uAtClientRestoreStopTag(atHandle);
+            char smsc_length=0;
+            uHexToBin(smsc_length_data, 2u, &smsc_length);
+            uint8_t data[200]= {0};
+            data[0] = smsc_length;
+            const int data_length = uAtClientReadHexData(atHandle, &data[1], smsc_length + pdu_length);
             errorCodeOrSize = uAtClientUnlock(atHandle);
-            if ((bytesRead >= 0) && (errorCodeOrSize == 0)) {
-                errorCodeOrSize = bytesRead;
-                // uPortLog("U_CELL_INFO: ICCID is %s.\n", pStr);
-            } else {
+            if ((data_length >= 0) && (errorCodeOrSize == 0))
+            {
+                uPortLog("pdu_length is %d, data_length is %d", pdu_length, data_length);
+                errorCodeOrSize = 0;
+                sms->smsPdu.stat = (uGsmPduSmsStat_t) stat;
+                const int pdu_decode_res = uGsmPduDecodeSmsDeliver(data, data_length, &sms->smsPdu);
+                if (pdu_decode_res < 0)
+                {
+                    errorCodeOrSize = pdu_decode_res;
+                }
+            }
+            else
+            {
                 errorCodeOrSize = (int32_t) U_CELL_ERROR_AT;
-                uPortLog("U_CELL_INFO: unable to read ICCID.\n");
+                uPortLog("U_CELL_SMS: unable to read SMS\n");
             }
         }
 

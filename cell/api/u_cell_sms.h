@@ -24,6 +24,7 @@
  * please keep #includes to your .c files. */
 
 #include "u_device.h"
+#include "u_gsm_pdu.h"
 
 /** \addtogroup _cell
  *  @{
@@ -49,9 +50,10 @@ extern "C" {
  * TYPES
  * -------------------------------------------------------------- */
 typedef struct {
-    char* message[160];
-    char* originator[30];
-    uint64_t serviceCenterTimestamp;
+    uGsmPduSmsDeliver_t smsPdu;
+    // char* message[160];
+    // char* originator[30];
+    // uint64_t serviceCenterTimestamp;
 } uCellSms_t;
 /* ----------------------------------------------------------------
  * FUNCTIONS
@@ -71,6 +73,6 @@ int32_t uCellSmsRead(uDeviceHandle_t cellHandle, int index, uCellSms_t *sms);
 
 /** @}*/
 
-#endif // _U_CELL_INFO_H_
+#endif// _U_CELL_INFO_H_
 
 // End of file
