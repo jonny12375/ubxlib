@@ -29,15 +29,25 @@ typedef enum {
     SMS_STO_SENT = 3,
 } uGsmPduSmsStat_t;
 
+typedef enum {
+    ENCODING_GSM = 0,
+    ENCODING_BINARY = 1,
+    ENCODING_UCS2 = 2
+} uGsmPduDcs_t;
+
 typedef struct {
     uint8_t toa;
     uint8_t number_length;
     char number[SMS_PDU_MAX_NUMBER_LENGTH];
-} uGsmPduSmscData_t;
+} uGsmPduNumber_t;
 
 typedef struct {
     uGsmPduSmsStat_t stat;
-    uGsmPduSmscData_t smsc;
+    uGsmPduNumber_t smsc;
+    uGsmPduNumber_t oa;
+    uint8_t tp_pid;
+    uGsmPduDcs_t dcs;
+    int64_t time;
 } uGsmPduSmsDeliver_t;
 
 int uGsmPduDecodeSmsDeliver(const uint8_t *data, size_t length, uGsmPduSmsDeliver_t *sms);
