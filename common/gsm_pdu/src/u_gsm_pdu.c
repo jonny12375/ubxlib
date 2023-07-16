@@ -5,6 +5,7 @@
 
 #include "u_error_common.h"
 
+#include <stdbool.h>
 #include <time.h>
 
 static int semi_octet_to_string(const uint8_t *data, size_t octet_count, char *output_string, uint8_t max_output_length)
@@ -130,6 +131,87 @@ static int decode_time(const uint8_t *data, size_t length, int64_t *date_out)
     return 0;
 }
 
+typedef struct {
+    uint8_t code;
+    char character;
+} alphabetExt_t;
+
+// Encoding is hard, limiting to lower ascii for now
+static const char ALPHABET[] = "@.$.......\n..\r..._.........\x1B.... !\"#.%&\'()*+,-./0123456789:;<=>?"
+                               ".ABCDEFGHIJKLMNOPQRSTUVWXYZ......abcdefghijklmnopqrstuvwxyz.....";
+
+static const uint8_t CHAR_EXT = 0x1Bu;
+static const alphabetExt_t ALPHABET_EXT[] = {
+    {10, '\f'}, {20, '^'}, {40, '{'}, {41, '}'}, {47, '\\'}, {60, '['}, {61, '~'}, {62, ']'}, {64, '|'},
+    // {101, '€'},
+};
+
+
+static int decode_data_gsm(const uint8_t *data, size_t length, uGsmData_t *data_out)
+{
+    // TODO: Look into header bytes that might be here.
+    const uint8_t length_septets = data[0];
+    const uint32_t length_bits = length_septets * 7;
+    const uint32_t length_bytes = (length_bits / 8) + (length_bits % 8 != 0 ? 1 : 0);
+    if (length_bytes > length+1)
+    {
+        return U_ERROR_COMMON_NO_MEMORY;
+    }
+    uint8_t *data_ptr = &data[1];
+    const uint8_t *data_end = data_ptr + length_bytes;
+    char *out_ptr = data_out->data;
+    uint16_t scratch = 0u;
+    uint8_t bits_in_scratch = 0u;
+    while (data_ptr < data_end || bits_in_scratch > 0)
+    {
+        if (bits_in_scratch < 8 && data_ptr < data_end)
+        {
+            scratch |= (*data_ptr++ << bits_in_scratch);
+            bits_in_scratch += 8u;
+        }
+        else
+        {
+            if (bits_in_scratch < 7)
+            {
+                if (scratch != 0)
+                {
+                    uPortLog("%d bits left in scratch and result is not zero\n", bits_in_scratch);
+                }
+                break;
+            }
+            uint8_t septet = scratch & 0x7Fu;
+            scratch >>= 7u;
+            bits_in_scratch -= 7u;
+
+            if (septet == CHAR_EXT)
+            {
+                uPortLog("Extended charset not handled yet\n");
+                return U_ERROR_COMMON_NOT_IMPLEMENTED;
+            }
+
+            char out_char = ALPHABET[septet];
+            *out_ptr = out_char;
+            out_ptr++;
+        }
+    }
+    *out_ptr = '\0';
+    out_ptr++;
+    const size_t out_length = out_ptr - data_out->data;
+    data_out->length = out_length;
+    return out_length;
+}
+
+static int decode_data(const uint8_t *data, size_t length, uGsmPduDcs_t dcs, uGsmData_t *data_out)
+{
+    if (dcs != ENCODING_GSM)
+    {
+        uPortLog("Decoding for this data type %d not implemented yet\n", (uint8_t) dcs);
+        return U_ERROR_COMMON_NOT_IMPLEMENTED;
+    }
+
+    return decode_data_gsm(data, length, data_out);
+}
+
 int uGsmPduDecodeSmsDeliver(const uint8_t *data, size_t length, uGsmPduSmsDeliver_t *sms)
 {
     if (length == 0)
@@ -159,6 +241,14 @@ int uGsmPduDecodeSmsDeliver(const uint8_t *data, size_t length, uGsmPduSmsDelive
     sms->tp_pid = tp_pid_ptr[0];
     sms->dcs = (uGsmPduDcs_t) (tp_pid_ptr[1] & 0xC0u) >> 2u;
     errorCode = decode_time(&tp_pid_ptr[2], 7u, &sms->time);
+    if (errorCode < 0)
+    {
+        return errorCode;
+    }
+    const uint8_t *data_start_ptr = &tp_pid_ptr[9u];
+    const uint8_t data_length = length - (data_start_ptr - data);
+
+    errorCode = decode_data(data_start_ptr, data_length, sms->dcs, &sms->data);
     if (errorCode < 0)
     {
         return errorCode;

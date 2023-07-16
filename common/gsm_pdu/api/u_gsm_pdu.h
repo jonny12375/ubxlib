@@ -42,12 +42,18 @@ typedef struct {
 } uGsmPduNumber_t;
 
 typedef struct {
+    uint8_t length;
+    char data[165];
+} uGsmData_t;
+
+typedef struct {
     uGsmPduSmsStat_t stat;
     uGsmPduNumber_t smsc;
     uGsmPduNumber_t oa;
     uint8_t tp_pid;
     uGsmPduDcs_t dcs;
     int64_t time;
+    uGsmData_t data;
 } uGsmPduSmsDeliver_t;
 
 int uGsmPduDecodeSmsDeliver(const uint8_t *data, size_t length, uGsmPduSmsDeliver_t *sms);

@@ -142,7 +142,6 @@ int32_t uCellSmsRead(uDeviceHandle_t cellHandle, int index, uCellSms_t *sms)
             errorCodeOrSize = uAtClientUnlock(atHandle);
             if ((data_length >= 0) && (errorCodeOrSize == 0))
             {
-                uPortLog("pdu_length is %d, data_length is %d", pdu_length, data_length);
                 errorCodeOrSize = 0;
                 sms->smsPdu.stat = (uGsmPduSmsStat_t) stat;
                 const int pdu_decode_res = uGsmPduDecodeSmsDeliver(data, data_length, &sms->smsPdu);
