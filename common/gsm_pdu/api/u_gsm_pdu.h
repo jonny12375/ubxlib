@@ -19,6 +19,7 @@
 
 #include <stddef.h>
 #include <stdint.h>
+#include <stdbool.h>
 
 #define SMS_PDU_MAX_NUMBER_LENGTH 20u
 
@@ -35,6 +36,12 @@ typedef enum {
     ENCODING_UCS2 = 2
 } uGsmPduDcs_t;
 
+typedef enum {
+    MTI_DELIVER = 0,
+    MTI_SUBMIT_REPORT = 1,
+    MTI_STATUS_REPORT = 2
+} uGsmPduMti_t;
+
 typedef struct {
     uint8_t toa;
     uint8_t number_length;
@@ -42,6 +49,22 @@ typedef struct {
 } uGsmPduNumber_t;
 
 typedef struct {
+    bool rp;
+    bool udhi;
+    bool sri;
+    bool lp;
+    bool mms;
+    uGsmPduMti_t mti;
+} uGsmPduHeader_t;
+
+typedef struct {
+    uint16_t reference;
+    uint8_t parts_count;
+    uint8_t part_number;
+} uGsmPduIei_t;
+
+typedef struct {
+    uGsmPduIei_t iei;
     uint8_t length;
     char data[165];
 } uGsmData_t;
@@ -49,6 +72,7 @@ typedef struct {
 typedef struct {
     uGsmPduSmsStat_t stat;
     uGsmPduNumber_t smsc;
+    uGsmPduHeader_t header;
     uGsmPduNumber_t oa;
     uint8_t tp_pid;
     uGsmPduDcs_t dcs;

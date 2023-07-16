@@ -69,6 +69,22 @@ static int decode_smsc(const uint8_t *data, size_t length, uGsmPduNumber_t *smsc
     return smsc_length + 1;
 }
 
+static int decode_header(const uint8_t header_byte, uGsmPduHeader_t *out_header)
+{
+    out_header->rp = header_byte & 0x80u;
+    out_header->udhi = header_byte & 0x40u;
+    out_header->sri = header_byte & 0x20u;
+    // 0x10 skipped.
+    out_header->lp = header_byte & 0x08u;
+    out_header->mms = header_byte & 0x04u;
+    out_header->mti = (uGsmPduMti_t) header_byte & 0x03u;
+    if (out_header->mti > 2u)
+    {
+        return U_ERROR_COMMON_INVALID_PARAMETER;
+    }
+    return 0;
+}
+
 static int decode_oa(const uint8_t *data, size_t length, uGsmPduNumber_t *oa)
 {
     const uint8_t sender_semioctet_count = data[0u];
@@ -146,13 +162,55 @@ static const alphabetExt_t ALPHABET_EXT[] = {
     // {101, '€'},
 };
 
-
-static int decode_data_gsm(const uint8_t *data, size_t length, uGsmData_t *data_out)
+static int decode_user_header(const uint8_t*data, size_t length, uGsmPduIei_t *iei)
 {
-    // TODO: Look into header bytes that might be here.
+    const uint8_t header_length = data[0];
+    const uint8_t iei_type = data[1];
+    const uint8_t iei_length = data[2];
+    if (iei_type == 0)
+    {
+        if (iei_length != 3)
+        {
+            return -1;
+        }
+        iei->reference = data[3];
+        iei->parts_count = data[4];
+        iei->part_number = data[5];
+    } else if (iei_type == 0x08)
+    {
+        if (iei_length != 4)
+        {
+            return -1;
+        }
+        // FIXME: Big endian should be correct.
+        iei->reference = data[3] << 8u | data[4];
+        iei->parts_count = data[5];
+        iei->part_number = data[6];
+    }
+    else
+    {
+        return -1;
+    }
+    return header_length + 1;
+}
+
+
+static int decode_data_gsm(const uint8_t *data, size_t length, uGsmPduHeader_t *pdu_header, uGsmData_t *data_out)
+{
+    int pdu_header_length = 0;
+    if (pdu_header->udhi)
+    {
+        pdu_header_length = decode_user_header(&data[1], length, &data_out->iei);
+        if (pdu_header_length < 0)
+        {
+            return pdu_header_length;
+        }
+    }
     const uint8_t length_septets = data[0];
     const uint32_t length_bits = length_septets * 7;
     const uint32_t length_bytes = (length_bits / 8) + (length_bits % 8 != 0 ? 1 : 0);
+    const uint32_t header_bits = pdu_header_length * 8;
+    uint32_t header_septets = (header_bits / 7) + (header_bits % 7 != 0 ? 1: 0);
     if (length_bytes > length+1)
     {
         return U_ERROR_COMMON_NO_MEMORY;
@@ -183,6 +241,13 @@ static int decode_data_gsm(const uint8_t *data, size_t length, uGsmData_t *data_
             scratch >>= 7u;
             bits_in_scratch -= 7u;
 
+            if (header_septets > 0)
+            {
+                // Ditch the header septets.
+                header_septets--;
+                continue;
+            }
+
             if (septet == CHAR_EXT)
             {
                 uPortLog("Extended charset not handled yet\n");
@@ -201,7 +266,8 @@ static int decode_data_gsm(const uint8_t *data, size_t length, uGsmData_t *data_
     return out_length;
 }
 
-static int decode_data(const uint8_t *data, size_t length, uGsmPduDcs_t dcs, uGsmData_t *data_out)
+static int decode_data(const uint8_t *data, size_t length, uGsmPduDcs_t dcs, uGsmPduHeader_t *pdu_header,
+                       uGsmData_t *data_out)
 {
     if (dcs != ENCODING_GSM)
     {
@@ -209,7 +275,7 @@ static int decode_data(const uint8_t *data, size_t length, uGsmPduDcs_t dcs, uGs
         return U_ERROR_COMMON_NOT_IMPLEMENTED;
     }
 
-    return decode_data_gsm(data, length, data_out);
+    return decode_data_gsm(data, length, pdu_header, data_out);
 }
 
 int uGsmPduDecodeSmsDeliver(const uint8_t *data, size_t length, uGsmPduSmsDeliver_t *sms)
@@ -232,6 +298,13 @@ int uGsmPduDecodeSmsDeliver(const uint8_t *data, size_t length, uGsmPduSmsDelive
 
     const int smsc_data_length = errorCode;
 
+    const uint8_t header_val = data[smsc_data_length];
+    errorCode = decode_header(header_val, &sms->header);
+    if (errorCode < 0)
+    {
+        return errorCode;
+    }
+
     errorCode = decode_oa(&data[smsc_data_length + 1], length - (smsc_data_length + 1), &sms->oa);
     if (errorCode < 0)
     {
@@ -248,7 +321,7 @@ int uGsmPduDecodeSmsDeliver(const uint8_t *data, size_t length, uGsmPduSmsDelive
     const uint8_t *data_start_ptr = &tp_pid_ptr[9u];
     const uint8_t data_length = length - (data_start_ptr - data);
 
-    errorCode = decode_data(data_start_ptr, data_length, sms->dcs, &sms->data);
+    errorCode = decode_data(data_start_ptr, data_length, sms->dcs, &sms->header, &sms->data);
     if (errorCode < 0)
     {
         return errorCode;
